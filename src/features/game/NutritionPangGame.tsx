@@ -3,6 +3,8 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+
 type GamePhase = "intro" | "playing" | "result" | "collection";
 type Category = "Balance" | "Focus&Calm" | "Vital" | "Special Care";
 
@@ -56,12 +58,18 @@ type SwapMotion = {
 
 type FallingTileOffsets = Record<string, string>;
 
+type Player = {
+  userId: string;
+  nickname: string;
+};
+
 const BOARD_SIZE = 7;
 const BOARD_CELLS = BOARD_SIZE * BOARD_SIZE;
 const ROUND_SECONDS = 60;
 const BOOST_TARGET_SCORE = 4200;
 const MAX_BOOSTS = 1;
 const COLLECTION_KEY = "nutrition-pang-collection-v1";
+const PLAYER_NICKNAME_KEY = "nutrition-pang-player-nickname-v1";
 const SWAP_THRESHOLD = 18;
 const SWAP_ANIMATION_MS = 170;
 const CLEAR_PARTICLE_COUNT = 7;
@@ -420,8 +428,26 @@ function writeCollection(collection: Record<string, number>) {
   localStorage.setItem(COLLECTION_KEY, JSON.stringify(collection));
 }
 
+function normalizeNickname(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function validateNickname(value: string) {
+  const nickname = normalizeNickname(value);
+  if (nickname.length < 2) return "닉네임은 2자 이상으로 입력해주세요.";
+  if (nickname.length > 16) return "닉네임은 16자 이하로 입력해주세요.";
+  return "";
+}
+
 export function NutritionPangGame() {
   const [phase, setPhase] = useState<GamePhase>("intro");
+  const [player, setPlayer] = useState<Player | null>(null);
+  const [nickname, setNickname] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem(PLAYER_NICKNAME_KEY) ?? "";
+  });
+  const [authError, setAuthError] = useState("");
+  const [isSigningIn, setIsSigningIn] = useState(false);
   const [runSupplements, setRunSupplements] = useState<Supplement[]>([]);
   const [board, setBoard] = useState<Tile[]>([]);
   const [score, setScore] = useState(0);
@@ -456,6 +482,44 @@ export function NutritionPangGame() {
     [],
   );
   const runIds = useMemo(() => runSupplements.map((item) => item.id), [runSupplements]);
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+
+  useEffect(() => {
+    if (!supabase) return;
+
+    let isMounted = true;
+    const client = supabase;
+
+    async function loadExistingPlayer() {
+      const {
+        data: { session },
+      } = await client.auth.getSession();
+      const userId = session?.user.id;
+
+      if (!userId) return;
+
+      const { data } = await client
+        .from("player_profiles")
+        .select("nickname")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (!isMounted) return;
+
+      const savedNickname = typeof data?.nickname === "string" ? data.nickname : "";
+      setPlayer({ userId, nickname: savedNickname });
+      if (savedNickname) {
+        setNickname(savedNickname);
+        localStorage.setItem(PLAYER_NICKNAME_KEY, savedNickname);
+      }
+    }
+
+    void loadExistingPlayer();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [supabase]);
 
   useEffect(() => {
     countsRef.current = counts;
@@ -616,7 +680,63 @@ export function NutritionPangGame() {
     return () => window.clearTimeout(timer);
   }, [finishGame, phase, secondsLeft]);
 
-  const startGame = useCallback(() => {
+  const ensurePlayer = useCallback(async () => {
+    const nextNickname = normalizeNickname(nickname);
+    const validationError = validateNickname(nextNickname);
+
+    if (validationError) {
+      setAuthError(validationError);
+      return null;
+    }
+
+    if (!supabase) {
+      setAuthError("Supabase 환경 변수가 아직 설정되지 않았습니다.");
+      return null;
+    }
+
+    setIsSigningIn(true);
+    setAuthError("");
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      let userId = session?.user.id;
+
+      if (!userId) {
+        const { data, error } = await supabase.auth.signInAnonymously();
+        if (error) throw error;
+        userId = data.user?.id;
+      }
+
+      if (!userId) {
+        throw new Error("익명 사용자 ID를 만들지 못했습니다.");
+      }
+
+      const { error: profileError } = await supabase.from("player_profiles").upsert({
+        user_id: userId,
+        nickname: nextNickname,
+      });
+
+      if (profileError) throw profileError;
+
+      localStorage.setItem(PLAYER_NICKNAME_KEY, nextNickname);
+      const nextPlayer = { userId, nickname: nextNickname };
+      setPlayer(nextPlayer);
+      setNickname(nextNickname);
+      return nextPlayer;
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "익명 로그인에 실패했습니다.");
+      return null;
+    } finally {
+      setIsSigningIn(false);
+    }
+  }, [nickname, supabase]);
+
+  const startGame = useCallback(async () => {
+    if (!(await ensurePlayer())) return;
+
     const picked = pickRunSupplements();
     const ids = picked.map((item) => item.id);
     const nextBoard = createBoard(ids);
@@ -645,7 +765,7 @@ export function NutritionPangGame() {
     setFallingOffsets({});
     setClearingIndexes(new Set());
     setPhase("playing");
-  }, []);
+  }, [ensurePlayer]);
 
   const handleTileTarget = useCallback(
     async (from: number, to: number) => {
@@ -750,7 +870,6 @@ export function NutritionPangGame() {
   const resultNewIds = lastRun?.newIds.filter((id) => supplementsById[id]) ?? [];
   const resultDestroyedIds = resultPickedIds.filter((id) => (lastRun?.counts[id] ?? 0) > 0);
   const resultDestroyedTotal = resultDestroyedIds.reduce((sum, id) => sum + (lastRun?.counts[id] ?? 0), 0);
-
   const hasOverlay = phase !== "playing";
   const canPlay = phase === "playing" && board.length > 0;
 
@@ -931,9 +1050,32 @@ export function NutritionPangGame() {
                 <p>60초 안에 최대한 오래 버티기</p>
                 <p>부스트팩으로 한 종류를 한 번에 팡</p>
               </div>
-              <button className="primary-button" onClick={startGame} type="button">
-                시작하기
-              </button>
+              <form
+                className="nickname-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void startGame();
+                }}
+              >
+                <label htmlFor="player-nickname">닉네임</label>
+                <input
+                  id="player-nickname"
+                  maxLength={16}
+                  minLength={2}
+                  onChange={(event) => {
+                    setNickname(event.target.value);
+                    setAuthError("");
+                  }}
+                  placeholder="예: 뉴트리션마스터"
+                  required
+                  value={nickname}
+                />
+                <span>{player ? `${player.nickname} 기록으로 이어서 플레이` : "결과와 도감을 저장할 이름이에요"}</span>
+                {authError && <strong role="alert">{authError}</strong>}
+                <button className="primary-button" disabled={isSigningIn} type="submit">
+                  {isSigningIn ? "준비 중..." : "시작하기"}
+                </button>
+              </form>
               <button
                 className="ghost-button"
                 onClick={() => {
