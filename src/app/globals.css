@@ -447,6 +447,26 @@ button {
   min-height: 100%;
 }
 
+.board-notice {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 8;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  padding: 10px 14px;
+  transform: translate(-50%, -50%);
+  border-radius: 14px;
+  background: rgba(23, 32, 38, 0.9);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 850;
+  line-height: 1.25;
+  text-align: center;
+  box-shadow: 0 12px 24px rgba(23, 32, 38, 0.24);
+  pointer-events: none;
+}
+
 .tile {
   position: relative;
   display: grid;
@@ -665,6 +685,24 @@ button {
 .result-hero span {
   color: var(--muted);
   font-weight: 750;
+}
+
+.sync-status {
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(0, 168, 232, 0.1);
+  color: #176170;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 850;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.sync-status.is-error {
+  background: rgba(190, 58, 48, 0.1);
+  color: #9a312b;
 }
 
 .result-summary {

@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
+type SupabaseBrowserClient = NonNullable<ReturnType<typeof createSupabaseBrowserClient>>;
+
 type GamePhase = "intro" | "playing" | "result" | "collection";
 type Category = "Balance" | "Focus&Calm" | "Vital" | "Special Care";
 
@@ -61,6 +63,13 @@ type FallingTileOffsets = Record<string, string>;
 type Player = {
   userId: string;
   nickname: string;
+};
+
+type SyncStatus = "idle" | "saving" | "saved" | "error";
+
+type CollectionRow = {
+  supplement_id: string;
+  destroyed_count: number;
 };
 
 const BOARD_SIZE = 7;
@@ -274,6 +283,36 @@ function createBoard(ids: string[]) {
   return board;
 }
 
+function hasAvailableMove(board: Tile[]) {
+  for (let index = 0; index < BOARD_CELLS; index += 1) {
+    const row = Math.floor(index / BOARD_SIZE);
+    const col = index % BOARD_SIZE;
+    const candidates = [
+      col < BOARD_SIZE - 1 ? index + 1 : null,
+      row < BOARD_SIZE - 1 ? index + BOARD_SIZE : null,
+    ];
+
+    for (const target of candidates) {
+      if (target === null) continue;
+      if (findMatches(swapTiles(board, index, target))) return true;
+    }
+  }
+
+  return false;
+}
+
+function createPlayableBoard(ids: string[]) {
+  let board = createBoard(ids);
+  let guard = 0;
+
+  while (!hasAvailableMove(board) && guard < 80) {
+    board = createBoard(ids);
+    guard += 1;
+  }
+
+  return board;
+}
+
 function findMatches(board: Tile[]): MatchSet | null {
   const indexes = new Set<number>();
 
@@ -439,6 +478,61 @@ function validateNickname(value: string) {
   return "";
 }
 
+function collectionFromRows(rows: CollectionRow[] | null) {
+  return Object.fromEntries(
+    (rows ?? [])
+      .filter((row) => VALID_SUPPLEMENT_IDS.has(row.supplement_id) && Number.isFinite(row.destroyed_count))
+      .map((row) => [row.supplement_id, row.destroyed_count]),
+  );
+}
+
+async function loadRemoteCollection(client: SupabaseBrowserClient, userId: string) {
+  const { data, error } = await client
+    .from("player_collections")
+    .select("supplement_id, destroyed_count")
+    .eq("user_id", userId);
+
+  if (error) throw error;
+
+  return collectionFromRows(data as CollectionRow[] | null);
+}
+
+async function persistRunResult(
+  client: SupabaseBrowserClient,
+  player: Player,
+  run: LastRun,
+  nextCollection: Record<string, number>,
+) {
+  const { error: runError } = await client.from("game_runs").insert({
+    user_id: player.userId,
+    score: run.score,
+    seconds: run.seconds,
+    destroyed_counts: run.counts,
+    picked_ids: run.pickedIds,
+    new_ids: run.newIds,
+    title: run.title,
+  });
+
+  if (runError) throw runError;
+
+  const collectionRows = Object.entries(nextCollection)
+    .filter(([id, count]) => VALID_SUPPLEMENT_IDS.has(id) && count > 0)
+    .map(([id, count]) => ({
+      user_id: player.userId,
+      supplement_id: id,
+      destroyed_count: count,
+      updated_at: new Date().toISOString(),
+    }));
+
+  if (!collectionRows.length) return;
+
+  const { error: collectionError } = await client
+    .from("player_collections")
+    .upsert(collectionRows, { onConflict: "user_id,supplement_id" });
+
+  if (collectionError) throw collectionError;
+}
+
 export function NutritionPangGame() {
   const [phase, setPhase] = useState<GamePhase>("intro");
   const [player, setPlayer] = useState<Player | null>(null);
@@ -448,6 +542,8 @@ export function NutritionPangGame() {
   });
   const [authError, setAuthError] = useState("");
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
+  const [syncError, setSyncError] = useState("");
   const [runSupplements, setRunSupplements] = useState<Supplement[]>([]);
   const [board, setBoard] = useState<Tile[]>([]);
   const [score, setScore] = useState(0);
@@ -466,9 +562,11 @@ export function NutritionPangGame() {
   const [clearingIndexes, setClearingIndexes] = useState<Set<number>>(new Set());
   const [fallingTileKeys, setFallingTileKeys] = useState<Set<string>>(new Set());
   const [fallingOffsets, setFallingOffsets] = useState<FallingTileOffsets>({});
+  const [boardNotice, setBoardNotice] = useState("");
   const pointerStart = useRef<PointerStart | null>(null);
   const boardRef = useRef<Tile[]>([]);
   const boardVersionRef = useRef(0);
+  const phaseRef = useRef(phase);
   const resolveMatchesRef = useRef<(initialBoard: Tile[], expectedVersion?: number, combo?: number) => void>(
     () => {},
   );
@@ -512,6 +610,17 @@ export function NutritionPangGame() {
         setNickname(savedNickname);
         localStorage.setItem(PLAYER_NICKNAME_KEY, savedNickname);
       }
+
+      try {
+        const remoteCollection = await loadRemoteCollection(client, userId);
+        if (!isMounted) return;
+        writeCollection(remoteCollection);
+        setCollection(remoteCollection);
+      } catch (error) {
+        if (!isMounted) return;
+        setSyncStatus("error");
+        setSyncError(error instanceof Error ? error.message : "도감을 불러오지 못했습니다.");
+      }
     }
 
     void loadExistingPlayer();
@@ -528,6 +637,10 @@ export function NutritionPangGame() {
   useEffect(() => {
     scoreRef.current = score;
   }, [score]);
+
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
 
   useEffect(() => {
     boardRef.current = board;
@@ -587,12 +700,47 @@ export function NutritionPangGame() {
     });
   }, []);
 
+  const reshuffleBoard = useCallback(
+    async (expectedVersion = boardVersionRef.current) => {
+      if (expectedVersion !== boardVersionRef.current || phaseRef.current !== "playing") return;
+
+      setIsResolving(true);
+      setSelectedIndex(null);
+      setDragState(null);
+      setSwapMotion(null);
+      setBoardNotice("이동 없음 · 다시 섞는 중");
+
+      await new Promise((resolve) => window.setTimeout(resolve, 620));
+
+      if (expectedVersion !== boardVersionRef.current || phaseRef.current !== "playing") {
+        setBoardNotice("");
+        setIsResolving(false);
+        return;
+      }
+
+      const nextBoard = createPlayableBoard(runIds);
+      boardVersionRef.current += 1;
+      boardRef.current = nextBoard;
+      setBoard(nextBoard);
+      setClearingIndexes(new Set());
+      setFallingOffsets(getInitialFallingOffsets(nextBoard));
+      setFallingTileKeys(new Set(nextBoard.map((tile) => tile.key)));
+      setBoardNotice("");
+      setIsResolving(false);
+    },
+    [runIds],
+  );
+
   const resolveMatches = useCallback(
     async (initialBoard: Tile[], expectedVersion = boardVersionRef.current, combo = 1) => {
       if (expectedVersion !== boardVersionRef.current) return;
 
       const match = findMatches(initialBoard);
       if (!match) {
+        if (!hasAvailableMove(initialBoard)) {
+          await reshuffleBoard(expectedVersion);
+          return;
+        }
         setIsResolving(false);
         return;
       }
@@ -629,7 +777,7 @@ export function NutritionPangGame() {
         resolveMatchesRef.current(boardRef.current, nextVersion, combo + 1);
       }, 540);
     },
-    [addScore, applyCounts, playTone, runIds],
+    [addScore, applyCounts, playTone, reshuffleBoard, runIds],
   );
 
   useEffect(() => {
@@ -649,19 +797,34 @@ export function NutritionPangGame() {
       nextCollection[id] = (nextCollection[id] ?? 0) + count;
     }
 
-    writeCollection(nextCollection);
-    setCollection(nextCollection);
-    setLastRun({
+    const nextRun = {
       score: finalScore,
       seconds: elapsedSeconds,
       counts: finalCounts,
       pickedIds,
       newIds,
       title: getResultTitle(finalScore, finalCounts),
-    });
+    };
+
+    writeCollection(nextCollection);
+    setCollection(nextCollection);
+    setLastRun(nextRun);
+    setSyncStatus(supabase && player ? "saving" : "idle");
+    setSyncError("");
     playTone("end");
     setPhase("result");
-  }, [elapsedSeconds, playTone]);
+
+    if (!supabase || !player) return;
+
+    void persistRunResult(supabase, player, nextRun, nextCollection)
+      .then(() => {
+        setSyncStatus("saved");
+      })
+      .catch((error) => {
+        setSyncStatus("error");
+        setSyncError(error instanceof Error ? error.message : "결과 저장에 실패했습니다.");
+      });
+  }, [elapsedSeconds, player, playTone, supabase]);
 
   useEffect(() => {
     if (phase !== "playing") return;
@@ -721,6 +884,19 @@ export function NutritionPangGame() {
 
       if (profileError) throw profileError;
 
+      let remoteCollection: Record<string, number> | null = null;
+      try {
+        remoteCollection = await loadRemoteCollection(supabase, userId);
+      } catch (error) {
+        setSyncStatus("error");
+        setSyncError(error instanceof Error ? error.message : "도감을 불러오지 못했습니다.");
+      }
+
+      if (remoteCollection) {
+        writeCollection(remoteCollection);
+        setCollection(remoteCollection);
+      }
+
       localStorage.setItem(PLAYER_NICKNAME_KEY, nextNickname);
       const nextPlayer = { userId, nickname: nextNickname };
       setPlayer(nextPlayer);
@@ -739,7 +915,7 @@ export function NutritionPangGame() {
 
     const picked = pickRunSupplements();
     const ids = picked.map((item) => item.id);
-    const nextBoard = createBoard(ids);
+    const nextBoard = createPlayableBoard(ids);
 
     setCollection(readCollection());
     pickedIdsRef.current = ids;
@@ -759,9 +935,12 @@ export function NutritionPangGame() {
     setBoosts(0);
     setLastRun(null);
     setCopied(false);
+    setSyncStatus("idle");
+    setSyncError("");
     setSelectedIndex(null);
     setDragState(null);
     setSwapMotion(null);
+    setBoardNotice("");
     setFallingOffsets({});
     setClearingIndexes(new Set());
     setPhase("playing");
@@ -1017,6 +1196,11 @@ export function NutritionPangGame() {
                 </button>
               );
             })}
+            {boardNotice && (
+              <div className="board-notice" role="status">
+                {boardNotice}
+              </div>
+            )}
           </div>
 
           <div className="boost-panel">
@@ -1098,6 +1282,13 @@ export function NutritionPangGame() {
                 <span>
                   {lastRun.seconds}초 생존 · 영양제 {resultDestroyedTotal.toLocaleString()}개 격파
                 </span>
+                {syncStatus !== "idle" && (
+                  <em className={`sync-status ${syncStatus === "error" ? "is-error" : ""}`} role="status">
+                    {syncStatus === "saving" && "기록 저장 중..."}
+                    {syncStatus === "saved" && "기록 저장 완료"}
+                    {syncStatus === "error" && `저장 실패 · ${syncError}`}
+                  </em>
+                )}
               </div>
 
               <div className="result-summary" aria-label="격파 요약">
