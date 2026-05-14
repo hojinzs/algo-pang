@@ -1181,7 +1181,13 @@ export function NutritionPangGame() {
             window.Kakao.init(KAKAO_JAVASCRIPT_KEY);
           }
 
-          window.Kakao.Share?.sendDefault({
+          const sendDefault = window.Kakao.Share?.sendDefault;
+
+          if (typeof sendDefault !== "function") {
+            throw new Error("카카오 공유 기능이 준비되지 않았습니다.");
+          }
+
+          sendDefault({
             objectType: "feed",
             content: {
               title: "알고팡",
