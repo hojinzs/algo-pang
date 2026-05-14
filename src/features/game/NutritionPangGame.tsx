@@ -1098,7 +1098,8 @@ export function NutritionPangGame() {
               const isDragging = dragState?.index === index;
               const isSelected = selectedIndex === index;
               const isClearing = clearingIndexes.has(index);
-              const isFalling = fallingTileKeys.has(tile.key);
+              const fallDistance = fallingOffsets[tile.key];
+              const isFalling = fallDistance !== undefined && fallingTileKeys.has(tile.key);
               return (
                 <button
                   className={[
@@ -1151,8 +1152,8 @@ export function NutritionPangGame() {
 
                     void handleTileTarget(start.index, target);
                   }}
-                  onAnimationEnd={() => {
-                    if (!fallingTileKeys.has(tile.key)) return;
+                  onAnimationEnd={(event) => {
+                    if (event.animationName !== "tile-drop" || !fallingTileKeys.has(tile.key)) return;
                     setFallingTileKeys((current) => {
                       const next = new Set(current);
                       next.delete(tile.key);
@@ -1171,7 +1172,7 @@ export function NutritionPangGame() {
                       "--swap-x": swapOffset.x,
                       "--swap-y": swapOffset.y,
                       "--fall-delay": `${Math.floor(index / BOARD_SIZE) * 26}ms`,
-                      "--fall-distance": fallingOffsets[tile.key] ?? "-224%",
+                      "--fall-distance": fallDistance ?? "0%",
                     } as React.CSSProperties
                   }
                   type="button"
