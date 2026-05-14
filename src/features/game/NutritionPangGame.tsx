@@ -438,10 +438,8 @@ export function NutritionPangGame() {
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [swapMotion, setSwapMotion] = useState<SwapMotion | null>(null);
   const [clearingIndexes, setClearingIndexes] = useState<Set<number>>(new Set());
-  const [boostedIndexes, setBoostedIndexes] = useState<Set<number>>(new Set());
   const [fallingTileKeys, setFallingTileKeys] = useState<Set<string>>(new Set());
   const [fallingOffsets, setFallingOffsets] = useState<FallingTileOffsets>({});
-  const [boardShake, setBoardShake] = useState(0);
   const pointerStart = useRef<PointerStart | null>(null);
   const boardRef = useRef<Tile[]>([]);
   const boardVersionRef = useRef(0);
@@ -646,7 +644,6 @@ export function NutritionPangGame() {
     setSwapMotion(null);
     setFallingOffsets({});
     setClearingIndexes(new Set());
-    setBoostedIndexes(new Set());
     setPhase("playing");
   }, []);
 
@@ -662,7 +659,6 @@ export function NutritionPangGame() {
       if (!findMatches(swapped)) {
         setSecondsLeft((current) => Math.max(0, current - 2));
         setSwapMotion({ from, to, phase: "reject" });
-        setBoardShake((current) => current + 1);
         window.setTimeout(() => {
           setSwapMotion(null);
           setIsResolving(false);
@@ -707,7 +703,6 @@ export function NutritionPangGame() {
     addScore(matchedTiles.length * 120, false);
     playTone("boost");
     setIsResolving(true);
-    setBoostedIndexes(new Set(matchedIndexes));
     setClearingIndexes(new Set(matchedIndexes));
 
     window.setTimeout(() => {
@@ -717,7 +712,6 @@ export function NutritionPangGame() {
       boardVersionRef.current += 1;
       const nextVersion = boardVersionRef.current;
       boardRef.current = nextBoard;
-      setBoostedIndexes(new Set());
       setClearingIndexes(new Set());
       setFallingOffsets(falling);
       setFallingTileKeys(new Set(Object.keys(falling)));
@@ -763,7 +757,7 @@ export function NutritionPangGame() {
   return (
     <main className={`game-shell ${hasOverlay ? "has-overlay" : ""}`}>
       <section className="screen play-screen" aria-label="뉴트리션 팡 플레이" aria-hidden={hasOverlay}>
-          <div className={`device-face ${isResolving ? "is-active" : ""}`} aria-label="알고케어 디스펜서 화면">
+          <div className="device-face" aria-label="알고케어 디스펜서 화면">
             <div className="device-screen">
               <div className="screen-shine" />
               <AlgocareLogo />
@@ -786,12 +780,7 @@ export function NutritionPangGame() {
           </div>
 
           <div
-            className={`board ${isResolving ? "is-resolving" : ""} ${
-              boardShake ? "is-shaking" : ""
-            }`}
-            onAnimationEnd={() => {
-              if (boardShake) setBoardShake(0);
-            }}
+            className={`board ${isResolving ? "is-resolving" : ""}`}
             onPointerCancel={() => {
               pointerStart.current = null;
               setDragState(null);
@@ -811,7 +800,6 @@ export function NutritionPangGame() {
               const isDragging = dragState?.index === index;
               const isSelected = selectedIndex === index;
               const isClearing = clearingIndexes.has(index);
-              const isBoosted = boostedIndexes.has(index);
               const isFalling = fallingTileKeys.has(tile.key);
               return (
                 <button
@@ -824,7 +812,6 @@ export function NutritionPangGame() {
                     swapMotion?.phase === "reject" && isSwapTile ? "is-swap-reject" : "",
                     isSelected ? "is-selected" : "",
                     isClearing ? "is-clearing" : "",
-                    isBoosted ? "is-boosted" : "",
                   ]
                     .filter(Boolean)
                     .join(" ")}

@@ -370,10 +370,6 @@ button {
   opacity: 0.42;
 }
 
-.device-face.is-active .device-throat span {
-  animation: sparkle 0.42s ease-in-out infinite alternate;
-}
-
 .board {
   --board-gap: 6px;
   position: relative;
@@ -398,10 +394,6 @@ button {
   grid-column: 1 / -1;
   grid-row: 1 / -1;
   min-height: 100%;
-}
-
-.board.is-shaking {
-  animation: board-shake 120ms ease both;
 }
 
 .tile {
@@ -462,10 +454,6 @@ button {
 .tile.is-clearing {
   animation: none;
   pointer-events: none;
-}
-
-.tile.is-clearing .pill-image {
-  animation: pill-pop 210ms cubic-bezier(0.18, 0.9, 0.22, 1.35) forwards;
 }
 
 .clear-particles {
@@ -537,10 +525,6 @@ button {
   --particle-y: -26px;
   width: clamp(2px, 10%, 5px);
   animation-delay: 34ms;
-}
-
-.tile.is-boosted {
-  animation: boost-flash 260ms ease both;
 }
 
 .pill-image {
@@ -814,22 +798,6 @@ button {
   }
 }
 
-@keyframes board-shake {
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-  25% {
-    transform: translateX(-2px);
-  }
-  50% {
-    transform: translateX(2px);
-  }
-  75% {
-    transform: translateX(-1px);
-  }
-}
-
 @keyframes tile-drop {
   from {
     opacity: 1;
@@ -856,21 +824,6 @@ button {
   }
 }
 
-@keyframes pill-pop {
-  0% {
-    opacity: 1;
-    transform: scale(1) rotate(0deg);
-  }
-  55% {
-    opacity: 1;
-    transform: scale(1.22) rotate(8deg);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(0.18) rotate(24deg);
-  }
-}
-
 @keyframes clear-particle-pop {
   0% {
     opacity: 0;
@@ -886,18 +839,6 @@ button {
         calc(-50% + var(--particle-y, 0px))
       )
       scale(0.82);
-  }
-}
-
-@keyframes boost-flash {
-  0% {
-    background: rgba(255, 255, 255, 0.88);
-  }
-  45% {
-    background: rgba(255, 216, 77, 0.42);
-  }
-  100% {
-    background: rgba(255, 255, 255, 0.88);
   }
 }
 
