@@ -120,12 +120,12 @@ const SWAP_ANIMATION_MS = 170;
 const CLEAR_PARTICLE_COUNT = 7;
 const KAKAO_JAVASCRIPT_KEY = process.env.NEXT_PUBLIC_KAKAO_JAVASCRIPT_KEY;
 const KAKAO_SDK_URL = "https://t1.kakaocdn.net/kakao_js_sdk/2.7.5/kakao.min.js";
-const SHARE_CHANNELS: Array<{ id: ShareChannel; label: string }> = [
-  { id: "kakao", label: "카카오톡" },
-  { id: "x", label: "X" },
-  { id: "threads", label: "Threads" },
-  { id: "instagram", label: "Instagram" },
-  { id: "copy", label: "Copy" },
+const SHARE_CHANNELS: Array<{ id: ShareChannel; label: string; icon: string }> = [
+  { id: "kakao", label: "카카오톡", icon: "/assets/share/kakaotalk.svg" },
+  { id: "x", label: "X", icon: "/assets/share/x.svg" },
+  { id: "threads", label: "Threads", icon: "/assets/share/threads.svg" },
+  { id: "instagram", label: "Instagram", icon: "/assets/share/instagram.svg" },
+  { id: "copy", label: "Copy", icon: "/assets/share/copy.svg" },
 ];
 
 const SUPPLEMENTS: Supplement[] = [
@@ -1543,6 +1543,14 @@ export function NutritionPangGame() {
                       onClick={() => void shareResult(channel.id)}
                       type="button"
                     >
+                      <Image
+                        className="share-icon"
+                        src={channel.icon}
+                        alt=""
+                        width={22}
+                        height={22}
+                        unoptimized
+                      />
                       {channel.label}
                     </button>
                   ))}
@@ -1592,27 +1600,15 @@ export function NutritionPangGame() {
 function AlgocareLogo() {
   return (
     <div className="device-logo" aria-label="algocare">
-      <svg
-        aria-hidden="true"
-        className="device-logo-mark"
-        role="img"
-        viewBox="0 0 258 258"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          fill="currentColor"
-          d="M128.95,0C57.74,0,0,57.74,0,128.95s57.74,128.95,128.95,128.95,128.95-57.74,128.95-128.95S200.15,0,128.95,0Z"
-        />
-        <path
-          fill="var(--logo-cutout)"
-          d="M192.5,117.66v-53.56c0-1.38-1.1-2.46-2.48-2.46h-20.13c-1.35,0-2.48,1.11-2.48,2.46v20.08c0,.28-.35.37-.5.12-6.46-10.47-22.83-19.19-43.78-19.19-33.84,0-64.19,26.63-64.19,63.82s30.39,63.82,64.19,63.82c20.95,0,37.32-9.46,43.78-19.93.16-.25.5-.12.5.12v20.85c0,1.38,1.1,2.46,2.48,2.46h20.13c1.35,0,2.48-1.1,2.48-2.46v-53.56c0-1.5-1.26-2.73-2.79-2.73h-19.44c-1.25,0-2.38.83-2.7,2.03-4.74,18.15-21.32,31.57-41.05,31.57-23.39,0-42.4-18.92-42.4-42.14s19.03-42.14,42.4-42.14c19.69,0,36.31,13.45,41.05,31.57.31,1.2,1.44,2.03,2.7,2.03h19.44c1.54,0,2.79-1.23,2.79-2.73"
-        />
-        <path
-          fill="var(--logo-cutout)"
-          d="M145.59,128.96c0,10.32-8.53,18.7-19.1,18.7s-19.1-8.35-19.1-18.7,8.53-18.67,19.1-18.67,19.1,8.35,19.1,18.67Z"
-        />
-      </svg>
-      <span>algocare</span>
+      <Image
+        className="device-logo-image"
+        src="/assets/logos/algocare.svg"
+        alt=""
+        width={98}
+        height={22}
+        priority
+        unoptimized
+      />
     </div>
   );
 }
