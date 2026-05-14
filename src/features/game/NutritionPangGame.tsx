@@ -525,9 +525,10 @@ function getShareText(run: LastRun, collectionCount: number) {
   ].join(" - ");
 }
 
-function openShareWindow(url: string) {
+function openShareWindow(url: string): Window | null {
   const popup = window.open(url, "_blank", "noopener,noreferrer,width=640,height=720");
   if (popup) popup.opener = null;
+  return popup;
 }
 
 function loadKakaoSdk() {
