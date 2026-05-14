@@ -65,6 +65,8 @@ type Player = {
   nickname: string;
 };
 
+type Collection = Record<string, number>;
+
 type SyncStatus = "idle" | "saving" | "saved" | "error";
 
 type CollectionRow = {
@@ -77,7 +79,6 @@ const BOARD_CELLS = BOARD_SIZE * BOARD_SIZE;
 const ROUND_SECONDS = 60;
 const BOOST_TARGET_SCORE = 4200;
 const MAX_BOOSTS = 1;
-const COLLECTION_KEY = "nutrition-pang-collection-v1";
 const PLAYER_NICKNAME_KEY = "nutrition-pang-player-nickname-v1";
 const SWAP_THRESHOLD = 18;
 const SWAP_ANIMATION_MS = 170;
@@ -451,22 +452,6 @@ function getResultTitle(score: number, counts: Record<string, number>) {
   return `${topName} 도감에 인생 걸었음`;
 }
 
-function readCollection() {
-  if (typeof window === "undefined") return {};
-  try {
-    const saved = JSON.parse(localStorage.getItem(COLLECTION_KEY) ?? "{}") as Record<string, number>;
-    return Object.fromEntries(
-      Object.entries(saved).filter(([id, value]) => VALID_SUPPLEMENT_IDS.has(id) && Number.isFinite(value)),
-    );
-  } catch {
-    return {};
-  }
-}
-
-function writeCollection(collection: Record<string, number>) {
-  localStorage.setItem(COLLECTION_KEY, JSON.stringify(collection));
-}
-
 function normalizeNickname(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -478,12 +463,29 @@ function validateNickname(value: string) {
   return "";
 }
 
-function collectionFromRows(rows: CollectionRow[] | null) {
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function collectionFromRows(rows: CollectionRow[] | null): Collection {
   return Object.fromEntries(
     (rows ?? [])
       .filter((row) => VALID_SUPPLEMENT_IDS.has(row.supplement_id) && Number.isFinite(row.destroyed_count))
       .map((row) => [row.supplement_id, row.destroyed_count]),
   );
+}
+
+function mergeCountsIntoCollection(previousCollection: Collection, counts: Record<string, number>) {
+  const nextCollection = { ...previousCollection };
+  const newIds: string[] = [];
+
+  for (const [id, count] of Object.entries(counts)) {
+    if (count <= 0) continue;
+    if (!previousCollection[id]) newIds.push(id);
+    nextCollection[id] = (nextCollection[id] ?? 0) + count;
+  }
+
+  return { nextCollection, newIds };
 }
 
 async function loadRemoteCollection(client: SupabaseBrowserClient, userId: string) {
@@ -499,12 +501,12 @@ async function loadRemoteCollection(client: SupabaseBrowserClient, userId: strin
 
 async function persistRunResult(
   client: SupabaseBrowserClient,
-  player: Player,
+  userId: string,
   run: LastRun,
-  nextCollection: Record<string, number>,
+  nextCollection: Collection,
 ) {
   const { error: runError } = await client.from("game_runs").insert({
-    user_id: player.userId,
+    user_id: userId,
     score: run.score,
     seconds: run.seconds,
     destroyed_counts: run.counts,
@@ -518,7 +520,7 @@ async function persistRunResult(
   const collectionRows = Object.entries(nextCollection)
     .filter(([id, count]) => VALID_SUPPLEMENT_IDS.has(id) && count > 0)
     .map(([id, count]) => ({
-      user_id: player.userId,
+      user_id: userId,
       supplement_id: id,
       destroyed_count: count,
       updated_at: new Date().toISOString(),
@@ -553,7 +555,7 @@ export function NutritionPangGame() {
   const [boostScore, setBoostScore] = useState(0);
   const [boosts, setBoosts] = useState(0);
   const [isResolving, setIsResolving] = useState(false);
-  const [collection, setCollection] = useState<Record<string, number>>({});
+  const [collection, setCollection] = useState<Collection>({});
   const [lastRun, setLastRun] = useState<LastRun | null>(null);
   const [copied, setCopied] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
@@ -570,6 +572,7 @@ export function NutritionPangGame() {
   const resolveMatchesRef = useRef<(initialBoard: Tile[], expectedVersion?: number, combo?: number) => void>(
     () => {},
   );
+  const collectionRef = useRef(collection);
   const countsRef = useRef(counts);
   const scoreRef = useRef(score);
   const pickedIdsRef = useRef<string[]>([]);
@@ -581,6 +584,23 @@ export function NutritionPangGame() {
   );
   const runIds = useMemo(() => runSupplements.map((item) => item.id), [runSupplements]);
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+
+  const applyCollection = useCallback((nextCollection: Collection) => {
+    collectionRef.current = nextCollection;
+    setCollection(nextCollection);
+  }, []);
+
+  const loadAndApplyRemoteCollection = useCallback(
+    async (client: SupabaseBrowserClient, userId: string, canApply: () => boolean = () => true) => {
+      const remoteCollection = await loadRemoteCollection(client, userId);
+      if (!canApply()) return null;
+      applyCollection(remoteCollection);
+      setSyncError("");
+      setSyncStatus((current) => (current === "error" ? "idle" : current));
+      return remoteCollection;
+    },
+    [applyCollection],
+  );
 
   useEffect(() => {
     if (!supabase) return;
@@ -612,14 +632,11 @@ export function NutritionPangGame() {
       }
 
       try {
-        const remoteCollection = await loadRemoteCollection(client, userId);
-        if (!isMounted) return;
-        writeCollection(remoteCollection);
-        setCollection(remoteCollection);
+        await loadAndApplyRemoteCollection(client, userId, () => isMounted);
       } catch (error) {
         if (!isMounted) return;
         setSyncStatus("error");
-        setSyncError(error instanceof Error ? error.message : "도감을 불러오지 못했습니다.");
+        setSyncError(getErrorMessage(error, "도감을 불러오지 못했습니다."));
       }
     }
 
@@ -628,7 +645,7 @@ export function NutritionPangGame() {
     return () => {
       isMounted = false;
     };
-  }, [supabase]);
+  }, [loadAndApplyRemoteCollection, supabase]);
 
   useEffect(() => {
     countsRef.current = counts;
@@ -787,14 +804,7 @@ export function NutritionPangGame() {
     const finalCounts = countsRef.current;
     const finalScore = scoreRef.current;
     const pickedIds = pickedIdsRef.current;
-    const previousCollection = readCollection();
-    const nextCollection = { ...previousCollection };
-    const newIds: string[] = [];
-
-    for (const [id, count] of Object.entries(finalCounts)) {
-      if (!previousCollection[id]) newIds.push(id);
-      nextCollection[id] = (nextCollection[id] ?? 0) + count;
-    }
+    const { nextCollection, newIds } = mergeCountsIntoCollection(collectionRef.current, finalCounts);
 
     const nextRun = {
       score: finalScore,
@@ -805,8 +815,7 @@ export function NutritionPangGame() {
       title: getResultTitle(finalScore, finalCounts),
     };
 
-    writeCollection(nextCollection);
-    setCollection(nextCollection);
+    applyCollection(nextCollection);
     setLastRun(nextRun);
     setSyncStatus(supabase && player ? "saving" : "idle");
     setSyncError("");
@@ -815,15 +824,15 @@ export function NutritionPangGame() {
 
     if (!supabase || !player) return;
 
-    void persistRunResult(supabase, player, nextRun, nextCollection)
+    void persistRunResult(supabase, player.userId, nextRun, nextCollection)
       .then(() => {
         setSyncStatus("saved");
       })
       .catch((error) => {
         setSyncStatus("error");
-        setSyncError(error instanceof Error ? error.message : "결과 저장에 실패했습니다.");
+        setSyncError(getErrorMessage(error, "결과 저장에 실패했습니다."));
       });
-  }, [elapsedSeconds, player, playTone, supabase]);
+  }, [applyCollection, elapsedSeconds, player, playTone, supabase]);
 
   useEffect(() => {
     if (phase !== "playing") return;
@@ -883,17 +892,11 @@ export function NutritionPangGame() {
 
       if (profileError) throw profileError;
 
-      let remoteCollection: Record<string, number> | null = null;
       try {
-        remoteCollection = await loadRemoteCollection(supabase, userId);
+        await loadAndApplyRemoteCollection(supabase, userId);
       } catch (error) {
         setSyncStatus("error");
-        setSyncError(error instanceof Error ? error.message : "도감을 불러오지 못했습니다.");
-      }
-
-      if (remoteCollection) {
-        writeCollection(remoteCollection);
-        setCollection(remoteCollection);
+        setSyncError(getErrorMessage(error, "도감을 불러오지 못했습니다."));
       }
 
       localStorage.setItem(PLAYER_NICKNAME_KEY, nextNickname);
@@ -902,12 +905,12 @@ export function NutritionPangGame() {
       setNickname(nextNickname);
       return nextPlayer;
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : "익명 로그인에 실패했습니다.");
+      setAuthError(getErrorMessage(error, "익명 로그인에 실패했습니다."));
       return null;
     } finally {
       setIsSigningIn(false);
     }
-  }, [nickname, supabase]);
+  }, [loadAndApplyRemoteCollection, nickname, supabase]);
 
   const startGame = useCallback(async () => {
     if (!(await ensurePlayer())) return;
@@ -916,7 +919,6 @@ export function NutritionPangGame() {
     const ids = picked.map((item) => item.id);
     const nextBoard = createPlayableBoard(ids);
 
-    setCollection(readCollection());
     pickedIdsRef.current = ids;
     boardRef.current = nextBoard;
     boardVersionRef.current += 1;
@@ -1259,14 +1261,7 @@ export function NutritionPangGame() {
                   {isSigningIn ? "준비 중..." : "시작하기"}
                 </button>
               </form>
-              <button
-                className="ghost-button"
-                onClick={() => {
-                  setCollection(readCollection());
-                  setPhase("collection");
-                }}
-                type="button"
-              >
+              <button className="ghost-button" onClick={() => setPhase("collection")} type="button">
                 도감 보기 {collectionCount}/{SUPPLEMENTS.length}
               </button>
             </section>
@@ -1318,14 +1313,7 @@ export function NutritionPangGame() {
                 </div>
               )}
 
-              <button
-                className="mystery-card"
-                onClick={() => {
-                  setCollection(readCollection());
-                  setPhase("collection");
-                }}
-                type="button"
-              >
+              <button className="mystery-card" onClick={() => setPhase("collection")} type="button">
                 <span>아직 미발견 영양제가 있습니다</span>
                 <span className="mystery-row">
                   {undiscovered.slice(0, 3).map((item) => (
