@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import type { MouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -396,6 +397,41 @@ function getInitialFallingOffsets(board: Tile[]) {
   );
 }
 
+async function fireBoostPackConfetti(button: HTMLButtonElement) {
+  const { default: confetti } = await import("canvas-confetti");
+  const rect = button.getBoundingClientRect();
+  const viewportWidth = Math.max(window.innerWidth, 1);
+  const viewportHeight = Math.max(window.innerHeight, 1);
+  const buttonOrigin = {
+    x: (rect.left + rect.width / 2) / viewportWidth,
+    y: (rect.top + rect.height / 2) / viewportHeight,
+  };
+  const colors = ["#ffd84d", "#ff6b6b", "#19c7a8", "#00a8e8", "#ffffff"];
+
+  const bursts = [
+    { delay: 0, origin: buttonOrigin, particleCount: 42, spread: 64, startVelocity: 42, scalar: 0.92 },
+    { delay: 70, origin: { x: 0.22, y: 0.34 }, particleCount: 18, spread: 82, startVelocity: 30, scalar: 0.64 },
+    { delay: 115, origin: { x: 0.78, y: 0.33 }, particleCount: 18, spread: 82, startVelocity: 30, scalar: 0.64 },
+    { delay: 170, origin: { x: 0.5, y: 0.22 }, particleCount: 22, spread: 96, startVelocity: 34, scalar: 0.7 },
+    { delay: 240, origin: { x: 0.18, y: 0.68 }, particleCount: 14, spread: 72, startVelocity: 26, scalar: 0.56 },
+    { delay: 295, origin: { x: 0.82, y: 0.66 }, particleCount: 14, spread: 72, startVelocity: 26, scalar: 0.56 },
+  ];
+
+  bursts.forEach(({ delay, ...options }) => {
+    window.setTimeout(() => {
+      void confetti({
+        ...options,
+        colors,
+        decay: 0.9,
+        disableForReducedMotion: true,
+        gravity: 0.92,
+        ticks: 110,
+        zIndex: 30,
+      });
+    }, delay);
+  });
+}
+
 function isAdjacent(from: number, to: number) {
   const diff = Math.abs(from - to);
   if (diff === BOARD_SIZE) return true;
@@ -565,6 +601,7 @@ export function NutritionPangGame() {
   const [fallingTileKeys, setFallingTileKeys] = useState<Set<string>>(new Set());
   const [fallingOffsets, setFallingOffsets] = useState<FallingTileOffsets>({});
   const [boardNotice, setBoardNotice] = useState("");
+  const [boostBurstId, setBoostBurstId] = useState(0);
   const pointerStart = useRef<PointerStart | null>(null);
   const boardRef = useRef<Tile[]>([]);
   const boardVersionRef = useRef(0);
@@ -572,6 +609,7 @@ export function NutritionPangGame() {
   const resolveMatchesRef = useRef<(initialBoard: Tile[], expectedVersion?: number, combo?: number) => void>(
     () => {},
   );
+  const boostBurstTimerRef = useRef<number | null>(null);
   const collectionRef = useRef(collection);
   const countsRef = useRef(counts);
   const scoreRef = useRef(score);
@@ -800,6 +838,14 @@ export function NutritionPangGame() {
     resolveMatchesRef.current = resolveMatches;
   }, [resolveMatches]);
 
+  useEffect(() => {
+    return () => {
+      if (boostBurstTimerRef.current !== null) {
+        window.clearTimeout(boostBurstTimerRef.current);
+      }
+    };
+  }, []);
+
   const finishGame = useCallback(() => {
     const finalCounts = countsRef.current;
     const finalScore = scoreRef.current;
@@ -978,7 +1024,7 @@ export function NutritionPangGame() {
     [board, isResolving, phase, resolveMatches],
   );
 
-  const useBoost = useCallback(() => {
+  const useBoost = useCallback((event: MouseEvent<HTMLButtonElement>) => {
     if (phase !== "playing" || isResolving || boosts <= 0) return;
 
     const frequency = new Map<string, number>();
@@ -997,8 +1043,21 @@ export function NutritionPangGame() {
       }
     });
 
+    if (boostBurstTimerRef.current !== null) {
+      window.clearTimeout(boostBurstTimerRef.current);
+    }
+    setBoostBurstId((current) => current + 1);
+    boostBurstTimerRef.current = window.setTimeout(() => {
+      setBoostBurstId(0);
+      boostBurstTimerRef.current = null;
+    }, 620);
+    void fireBoostPackConfetti(event.currentTarget);
+
     setBoosts((current) => Math.max(0, current - 1));
     setBoostScore(0);
+    setSelectedIndex(null);
+    setDragState(null);
+    setSwapMotion(null);
     applyCounts(matchedTiles);
     addScore(matchedTiles.length * 120, false);
     playTone("boost");
@@ -1206,7 +1265,7 @@ export function NutritionPangGame() {
 
           <div className="boost-panel">
             <button
-              className={`boost-button ${boosts > 0 ? "is-ready" : ""}`}
+              className={`boost-button ${boosts > 0 ? "is-ready" : ""} ${boostBurstId > 0 ? "is-bursting" : ""}`}
               disabled={!canPlay || boosts <= 0 || isResolving}
               onClick={useBoost}
               style={
