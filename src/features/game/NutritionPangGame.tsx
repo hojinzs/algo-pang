@@ -1026,12 +1026,12 @@ export function NutritionPangGame() {
   const shareResult = useCallback(async () => {
     if (!lastRun) return;
 
-    const text = `뉴트리션 팡 ${lastRun.score.toLocaleString()}점 - ${lastRun.title} / 도감 ${Object.keys(collection).length}/${SUPPLEMENTS.length}`;
+    const text = `알고팡 ${lastRun.score.toLocaleString()}점 - ${lastRun.title} / 도감 ${Object.keys(collection).length}/${SUPPLEMENTS.length}`;
     const url = window.location.href;
 
     if (navigator.share) {
       await navigator.share({
-        title: "뉴트리션 팡",
+        title: "알고팡",
         text,
         url,
       });
@@ -1054,7 +1054,7 @@ export function NutritionPangGame() {
 
   return (
     <main className={`game-shell ${hasOverlay ? "has-overlay" : ""}`}>
-      <section className="screen play-screen" aria-label="뉴트리션 팡 플레이" aria-hidden={hasOverlay}>
+      <section className="screen play-screen" aria-label="알고팡 플레이" aria-hidden={hasOverlay}>
           <div className="device-face" aria-label="알고케어 디스펜서 화면">
             <div className="device-screen">
               <div className="screen-shine" />
@@ -1227,7 +1227,7 @@ export function NutritionPangGame() {
             <section className="overlay-panel intro-screen" aria-labelledby="game-title">
               <div className="intro-copy">
                 <p className="eyebrow">Algocare inspired match game</p>
-                <h1 id="game-title">뉴트리션 팡</h1>
+                <h1 id="game-title">알고팡</h1>
                 <p>영양제를 맞추고 부스트팩을 터뜨려 아직 못 본 뉴트리션을 찾아보세요.</p>
               </div>
               <div className="rule-list" aria-label="게임 핵심 규칙">
