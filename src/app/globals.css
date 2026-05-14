@@ -426,7 +426,7 @@ button {
 }
 
 .tile.is-falling {
-  animation: tile-drop 620ms cubic-bezier(0.18, 0.86, 0.18, 1) both;
+  animation: tile-drop 520ms cubic-bezier(0.18, 0.82, 0.24, 1) both;
   animation-delay: var(--fall-delay, 0ms);
 }
 
@@ -834,10 +834,6 @@ button {
   from {
     opacity: 1;
     transform: translateY(var(--fall-distance, -180px));
-  }
-  78% {
-    opacity: 1;
-    transform: translateY(5px);
   }
   to {
     opacity: 1;
