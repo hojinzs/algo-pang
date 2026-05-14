@@ -770,7 +770,6 @@ export function NutritionPangGame() {
       setFallingTileKeys(new Set(Object.keys(falling)));
       setBoard(collapsedBoard);
       setClearingIndexes(new Set());
-      setIsResolving(false);
 
       window.setTimeout(() => {
         if (boardVersionRef.current !== nextVersion) return;
@@ -1015,7 +1014,6 @@ export function NutritionPangGame() {
       setFallingOffsets(falling);
       setFallingTileKeys(new Set(Object.keys(falling)));
       setBoard(nextBoard);
-      setIsResolving(false);
       window.setTimeout(() => {
         if (boardVersionRef.current !== nextVersion) return;
         void resolveMatches(boardRef.current, nextVersion);
