@@ -68,11 +68,46 @@ type Player = {
 type Collection = Record<string, number>;
 
 type SyncStatus = "idle" | "saving" | "saved" | "error";
+type ShareChannel = "kakao" | "x" | "threads" | "instagram" | "copy";
+type ShareFeedback = {
+  tone: "success" | "info" | "error";
+  message: string;
+};
 
 type CollectionRow = {
   supplement_id: string;
   destroyed_count: number;
 };
+
+declare global {
+  interface Window {
+    Kakao?: {
+      init: (key: string) => void;
+      isInitialized: () => boolean;
+      Share?: {
+        sendDefault: (options: {
+          objectType: "feed";
+          content: {
+            title: string;
+            description: string;
+            imageUrl: string;
+            link: {
+              mobileWebUrl: string;
+              webUrl: string;
+            };
+          };
+          buttons: Array<{
+            title: string;
+            link: {
+              mobileWebUrl: string;
+              webUrl: string;
+            };
+          }>;
+        }) => void;
+      };
+    };
+  }
+}
 
 const BOARD_SIZE = 7;
 const BOARD_CELLS = BOARD_SIZE * BOARD_SIZE;
@@ -83,6 +118,15 @@ const PLAYER_NICKNAME_KEY = "nutrition-pang-player-nickname-v1";
 const SWAP_THRESHOLD = 18;
 const SWAP_ANIMATION_MS = 170;
 const CLEAR_PARTICLE_COUNT = 7;
+const KAKAO_JAVASCRIPT_KEY = process.env.NEXT_PUBLIC_KAKAO_JAVASCRIPT_KEY;
+const KAKAO_SDK_URL = "https://t1.kakaocdn.net/kakao_js_sdk/2.7.5/kakao.min.js";
+const SHARE_CHANNELS: Array<{ id: ShareChannel; label: string; icon: string }> = [
+  { id: "kakao", label: "카카오톡", icon: "/assets/share/kakaotalk.svg" },
+  { id: "x", label: "X", icon: "/assets/share/x.svg" },
+  { id: "threads", label: "Threads", icon: "/assets/share/threads.svg" },
+  { id: "instagram", label: "Instagram", icon: "/assets/share/instagram.svg" },
+  { id: "copy", label: "복사", icon: "/assets/share/copy.svg" },
+];
 
 const SUPPLEMENTS: Supplement[] = [
   {
@@ -467,6 +511,74 @@ function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+function getShareUrl() {
+  const configuredUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  if (configuredUrl) return configuredUrl;
+  return `${window.location.origin}${window.location.pathname}`;
+}
+
+function getShareText(run: LastRun, collectionCount: number) {
+  return [
+    `알고팡 ${run.score.toLocaleString()}점`,
+    run.title,
+    `도감 ${collectionCount}/${SUPPLEMENTS.length}`,
+  ].join(" - ");
+}
+
+function openShareWindow(url: string): Window | null {
+  const popup = window.open(url, "_blank", "noopener,noreferrer,width=640,height=720");
+  if (popup) popup.opener = null;
+  return popup;
+}
+
+function loadKakaoSdk() {
+  return new Promise<void>((resolve, reject) => {
+    if (window.Kakao) {
+      resolve();
+      return;
+    }
+
+    const existingScript = document.getElementById("kakao-javascript-sdk") as HTMLScriptElement | null;
+    if (existingScript) {
+      existingScript.addEventListener("load", () => resolve(), { once: true });
+      existingScript.addEventListener("error", () => reject(new Error("카카오 SDK를 불러오지 못했습니다.")), {
+        once: true,
+      });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = "kakao-javascript-sdk";
+    script.src = KAKAO_SDK_URL;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("카카오 SDK를 불러오지 못했습니다."));
+    document.head.appendChild(script);
+  });
+}
+
+async function copyShareText(text: string, url: string) {
+  if (!navigator.clipboard) {
+    throw new Error("클립보드 복사를 지원하지 않는 브라우저입니다.");
+  }
+
+  await navigator.clipboard.writeText(`${text}\n${url}`);
+}
+
+async function shareThroughNativeSheet(text: string, url: string) {
+  if (!navigator.share) {
+    await copyShareText(text, url);
+    return "copied";
+  }
+
+  await navigator.share({
+    title: "알고팡",
+    text,
+    url,
+  });
+  return "shared";
+}
+
 function collectionFromRows(rows: CollectionRow[] | null): Collection {
   return Object.fromEntries(
     (rows ?? [])
@@ -557,7 +669,7 @@ export function NutritionPangGame() {
   const [isResolving, setIsResolving] = useState(false);
   const [collection, setCollection] = useState<Collection>({});
   const [lastRun, setLastRun] = useState<LastRun | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState<ShareFeedback | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [swapMotion, setSwapMotion] = useState<SwapMotion | null>(null);
@@ -935,7 +1047,7 @@ export function NutritionPangGame() {
     setBoostScore(0);
     setBoosts(0);
     setLastRun(null);
-    setCopied(false);
+    setShareFeedback(null);
     setSyncStatus("idle");
     setSyncError("");
     setSelectedIndex(null);
@@ -1023,23 +1135,110 @@ export function NutritionPangGame() {
     }, 260);
   }, [addScore, applyCounts, board, boosts, isResolving, phase, playTone, resolveMatches, runIds]);
 
-  const shareResult = useCallback(async () => {
+  useEffect(() => {
+    if (!shareFeedback) return;
+
+    const timer = window.setTimeout(() => setShareFeedback(null), 3200);
+    return () => window.clearTimeout(timer);
+  }, [shareFeedback]);
+
+  const shareResult = useCallback(async (channel: ShareChannel) => {
     if (!lastRun) return;
 
-    const text = `알고팡 ${lastRun.score.toLocaleString()}점 - ${lastRun.title} / 도감 ${Object.keys(collection).length}/${SUPPLEMENTS.length}`;
-    const url = window.location.href;
+    const collectionCount = Object.keys(collection).length;
+    const text = getShareText(lastRun, collectionCount);
+    const url = getShareUrl();
 
-    if (navigator.share) {
-      await navigator.share({
-        title: "알고팡",
-        text,
-        url,
+    try {
+      if (channel === "x") {
+        const params = new URLSearchParams({ text, url });
+        openShareWindow(`https://twitter.com/intent/tweet?${params.toString()}`);
+        setShareFeedback({ tone: "success", message: "X 공유 창을 열었습니다." });
+        return;
+      }
+
+      if (channel === "threads") {
+        const params = new URLSearchParams({ text: `${text}\n${url}` });
+        openShareWindow(`https://www.threads.net/intent/post?${params.toString()}`);
+        setShareFeedback({ tone: "success", message: "Threads 공유 창을 열었습니다." });
+        return;
+      }
+
+      if (channel === "copy") {
+        await copyShareText(text, url);
+        setShareFeedback({ tone: "success", message: "공유 문구와 링크를 복사했습니다." });
+        return;
+      }
+
+      if (channel === "kakao") {
+        if (KAKAO_JAVASCRIPT_KEY) {
+          await loadKakaoSdk();
+
+          if (!window.Kakao) {
+            throw new Error("카카오 SDK가 준비되지 않았습니다.");
+          }
+
+          if (!window.Kakao.isInitialized()) {
+            window.Kakao.init(KAKAO_JAVASCRIPT_KEY);
+          }
+
+          const sendDefault = window.Kakao.Share?.sendDefault;
+
+          if (typeof sendDefault !== "function") {
+            throw new Error("카카오 공유 기능이 준비되지 않았습니다.");
+          }
+
+          sendDefault({
+            objectType: "feed",
+            content: {
+              title: "알고팡",
+              description: text,
+              imageUrl: new URL("/og/algopang-og.png", url).toString(),
+              link: {
+                mobileWebUrl: url,
+                webUrl: url,
+              },
+            },
+            buttons: [
+              {
+                title: "플레이하기",
+                link: {
+                  mobileWebUrl: url,
+                  webUrl: url,
+                },
+              },
+            ],
+          });
+          setShareFeedback({ tone: "success", message: "카카오톡 공유 창을 열었습니다." });
+          return;
+        }
+
+        const result = await shareThroughNativeSheet(text, url);
+        setShareFeedback({
+          tone: result === "copied" ? "info" : "success",
+          message:
+            result === "copied"
+              ? "카카오 JavaScript 키가 없어 링크를 복사했습니다."
+              : "공유 시트에서 카카오톡을 선택해주세요.",
+        });
+        return;
+      }
+
+      const result = await shareThroughNativeSheet(text, url);
+      setShareFeedback({
+        tone: result === "copied" ? "info" : "success",
+        message:
+          result === "copied"
+            ? "Instagram 직접 공유를 지원하지 않아 링크를 복사했습니다."
+            : "공유 시트에서 Instagram을 선택해주세요.",
       });
-      return;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setShareFeedback({
+        tone: "error",
+        message: getErrorMessage(error, "공유에 실패했습니다. Copy를 눌러 링크를 복사해주세요."),
+      });
     }
-
-    await navigator.clipboard.writeText(`${text} ${url}`);
-    setCopied(true);
   }, [collection, lastRun]);
 
   const collectionCount = Object.keys(collection).length;
@@ -1329,9 +1528,39 @@ export function NutritionPangGame() {
                 <button className="primary-button" onClick={startGame} type="button">
                   다시 하기
                 </button>
-                <button className="secondary-button" onClick={shareResult} type="button">
-                  {copied ? "링크 복사됨" : "공유하기"}
+                <button className="ghost-button" onClick={() => setPhase("collection")} type="button">
+                  도감 보기
                 </button>
+              </div>
+
+              <div className="share-panel" aria-label="결과 공유">
+                <span>공유 채널</span>
+                <div className="share-options">
+                  {SHARE_CHANNELS.map((channel) => (
+                    <button
+                      className={`share-button share-button-${channel.id}`}
+                      aria-label={channel.label}
+                      key={channel.id}
+                      onClick={() => void shareResult(channel.id)}
+                      type="button"
+                    >
+                      <Image
+                        className="share-icon"
+                        src={channel.icon}
+                        alt=""
+                        width={22}
+                        height={22}
+                        unoptimized
+                      />
+                      {channel.id === "copy" && <span>복사</span>}
+                    </button>
+                  ))}
+                </div>
+                {shareFeedback && (
+                  <em className={`share-feedback is-${shareFeedback.tone}`} role="status">
+                    {shareFeedback.message}
+                  </em>
+                )}
               </div>
             </section>
           )}
@@ -1372,27 +1601,15 @@ export function NutritionPangGame() {
 function AlgocareLogo() {
   return (
     <div className="device-logo" aria-label="algocare">
-      <svg
-        aria-hidden="true"
-        className="device-logo-mark"
-        role="img"
-        viewBox="0 0 258 258"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          fill="currentColor"
-          d="M128.95,0C57.74,0,0,57.74,0,128.95s57.74,128.95,128.95,128.95,128.95-57.74,128.95-128.95S200.15,0,128.95,0Z"
-        />
-        <path
-          fill="var(--logo-cutout)"
-          d="M192.5,117.66v-53.56c0-1.38-1.1-2.46-2.48-2.46h-20.13c-1.35,0-2.48,1.11-2.48,2.46v20.08c0,.28-.35.37-.5.12-6.46-10.47-22.83-19.19-43.78-19.19-33.84,0-64.19,26.63-64.19,63.82s30.39,63.82,64.19,63.82c20.95,0,37.32-9.46,43.78-19.93.16-.25.5-.12.5.12v20.85c0,1.38,1.1,2.46,2.48,2.46h20.13c1.35,0,2.48-1.1,2.48-2.46v-53.56c0-1.5-1.26-2.73-2.79-2.73h-19.44c-1.25,0-2.38.83-2.7,2.03-4.74,18.15-21.32,31.57-41.05,31.57-23.39,0-42.4-18.92-42.4-42.14s19.03-42.14,42.4-42.14c19.69,0,36.31,13.45,41.05,31.57.31,1.2,1.44,2.03,2.7,2.03h19.44c1.54,0,2.79-1.23,2.79-2.73"
-        />
-        <path
-          fill="var(--logo-cutout)"
-          d="M145.59,128.96c0,10.32-8.53,18.7-19.1,18.7s-19.1-8.35-19.1-18.7,8.53-18.67,19.1-18.67,19.1,8.35,19.1,18.67Z"
-        />
-      </svg>
-      <span>algocare</span>
+      <Image
+        className="device-logo-image"
+        src="/assets/logos/algocare.svg"
+        alt=""
+        width={98}
+        height={22}
+        priority
+        unoptimized
+      />
     </div>
   );
 }

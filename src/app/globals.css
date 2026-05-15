@@ -345,20 +345,14 @@ button {
 .device-logo {
   position: relative;
   z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  --logo-cutout: #0b0f12;
-  color: #ffffff;
-  font-size: 22px;
-  font-weight: 850;
-  letter-spacing: 0;
+  display: grid;
+  place-items: center;
 }
 
-.device-logo-mark {
-  width: 25px;
-  height: 25px;
-  flex: 0 0 auto;
+.device-logo-image {
+  display: block;
+  width: 118px;
+  height: auto;
 }
 
 .device-metrics {
@@ -813,6 +807,106 @@ button {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+.share-panel {
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  border-radius: 16px;
+  background: #eef9fd;
+}
+
+.share-panel > span {
+  color: #23424e;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.share-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 44px)) minmax(74px, 1fr);
+  gap: 7px;
+}
+
+.share-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 42px;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 13px;
+  background: #ffffff;
+  color: #172026;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+  box-shadow: inset 0 0 0 1px rgba(23, 32, 38, 0.08);
+}
+
+.share-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.share-button:active {
+  transform: scale(0.98);
+}
+
+.share-button-kakao {
+  background: #fee500;
+}
+
+.share-button-x {
+  background: #172026;
+  color: #ffffff;
+}
+
+.share-button-x .share-icon,
+.share-button-copy .share-icon {
+  filter: invert(1);
+}
+
+.share-button-threads,
+.share-button-instagram {
+  background: #ffffff;
+}
+
+.share-button-copy {
+  background: var(--brand);
+  color: #ffffff;
+  padding: 0 12px;
+}
+
+.share-feedback {
+  padding: 8px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.share-feedback.is-success {
+  background: rgba(25, 199, 168, 0.13);
+  color: #126b60;
+}
+
+.share-feedback.is-info {
+  background: rgba(0, 168, 232, 0.12);
+  color: #176170;
+}
+
+.share-feedback.is-error {
+  background: rgba(190, 58, 48, 0.1);
+  color: #9a312b;
 }
 
 .screen-header {
