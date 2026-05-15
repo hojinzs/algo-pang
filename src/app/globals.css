@@ -825,7 +825,7 @@ button {
 
 .share-options {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 44px)) minmax(74px, 1fr);
   gap: 7px;
 }
 
@@ -836,7 +836,7 @@ button {
   min-width: 0;
   min-height: 42px;
   gap: 6px;
-  padding: 0 7px;
+  padding: 0;
   border: 0;
   border-radius: 13px;
   background: #ffffff;
@@ -882,6 +882,7 @@ button {
 .share-button-copy {
   background: var(--brand);
   color: #ffffff;
+  padding: 0 12px;
 }
 
 .share-feedback {

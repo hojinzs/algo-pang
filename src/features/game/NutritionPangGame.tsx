@@ -125,7 +125,7 @@ const SHARE_CHANNELS: Array<{ id: ShareChannel; label: string; icon: string }> =
   { id: "x", label: "X", icon: "/assets/share/x.svg" },
   { id: "threads", label: "Threads", icon: "/assets/share/threads.svg" },
   { id: "instagram", label: "Instagram", icon: "/assets/share/instagram.svg" },
-  { id: "copy", label: "Copy", icon: "/assets/share/copy.svg" },
+  { id: "copy", label: "복사", icon: "/assets/share/copy.svg" },
 ];
 
 const SUPPLEMENTS: Supplement[] = [
@@ -1539,6 +1539,7 @@ export function NutritionPangGame() {
                   {SHARE_CHANNELS.map((channel) => (
                     <button
                       className={`share-button share-button-${channel.id}`}
+                      aria-label={channel.label}
                       key={channel.id}
                       onClick={() => void shareResult(channel.id)}
                       type="button"
@@ -1551,7 +1552,7 @@ export function NutritionPangGame() {
                         height={22}
                         unoptimized
                       />
-                      {channel.label}
+                      {channel.id === "copy" && <span>복사</span>}
                     </button>
                   ))}
                 </div>
