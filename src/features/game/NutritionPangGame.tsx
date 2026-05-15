@@ -1078,7 +1078,7 @@ export function NutritionPangGame() {
           </div>
 
           <div
-            className={`board ${isResolving ? "is-resolving" : ""}`}
+            className="board"
             onPointerCancel={() => {
               pointerStart.current = null;
               setDragState(null);
