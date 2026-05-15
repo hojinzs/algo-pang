@@ -519,6 +519,14 @@ button {
 .tile.is-clearing {
   animation: none;
   pointer-events: none;
+  transform: translate(0, 0) scale(1);
+  transition: opacity 80ms ease;
+}
+
+.tile.is-clearing .pill-image {
+  opacity: 0;
+  transform: none;
+  transition: opacity 70ms ease;
 }
 
 .clear-particles {
@@ -653,8 +661,33 @@ button {
   filter: saturate(1.08);
 }
 
+.boost-button.is-bursting {
+  animation: boost-press-burst 420ms cubic-bezier(0.16, 0.85, 0.22, 1) both;
+  box-shadow:
+    0 12px 28px rgba(0, 168, 232, 0.22),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.42);
+}
+
+.boost-button.is-bursting:disabled {
+  opacity: 1;
+}
+
+.boost-button.is-bursting::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.95) 0 10%, transparent 11%),
+    radial-gradient(circle at 50% 50%, rgba(255, 216, 77, 0.46) 0 30%, transparent 32%),
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.42), transparent);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  animation: boost-ring 360ms ease-out both;
+}
+
 .boost-button.is-ready:not(:disabled):active {
-  transform: scale(0.985);
+  transform: scale(0.94);
 }
 
 .result-hero {
@@ -1004,6 +1037,35 @@ button {
   }
   100% {
     transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes boost-press-burst {
+  0% {
+    filter: saturate(1.16) brightness(1.04);
+    transform: scale(0.94);
+  }
+  38% {
+    filter: saturate(1.28) brightness(1.1);
+    transform: scale(1.035);
+  }
+  100% {
+    filter: saturate(1.08) brightness(1);
+    transform: scale(1);
+  }
+}
+
+@keyframes boost-ring {
+  0% {
+    opacity: 0.86;
+    transform: scale(0.28);
+  }
+  68% {
+    opacity: 0.28;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
   }
 }
 
