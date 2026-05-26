@@ -432,7 +432,6 @@ button {
   overflow: hidden;
   touch-action: none;
   user-select: none;
-  animation: board-enter 260ms ease both;
 }
 
 .board-empty {
@@ -999,18 +998,6 @@ button {
   to {
     opacity: 0.95;
     transform: translateY(9px);
-  }
-}
-
-@keyframes board-enter {
-  from {
-    transform: scale(0.992);
-  }
-  50% {
-    transform: scale(1.006);
-  }
-  to {
-    transform: scale(1);
   }
 }
 
